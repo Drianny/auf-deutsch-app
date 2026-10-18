@@ -177,7 +177,12 @@
                 <div id="cardFront" class="absolute inset-0 bg-gradient-to-b from-zinc-900 to-zinc-925 border border-zinc-800 rounded-[28px] p-6 flex flex-col justify-between items-center backface-hidden shadow-xl">
                     <div class="w-full flex justify-between items-center text-[9px] font-mono tracking-wider text-zinc-500">
                         <span id="cardBadge" class="uppercase bg-zinc-800 px-2 py-0.5 rounded-full text-zinc-400">NOMEN</span>
-                        <span id="queueProgress">0/0</span>
+                        <div class="flex items-center space-x-2" onclick="event.stopPropagation()">
+                            <button id="correctCardBtn" onclick="correctCurrentCard()" class="text-[8px] font-mono bg-purple-950/60 border border-purple-800/80 text-purple-300 px-2 py-0.5 rounded-full hover:bg-purple-900 transition" title="Audit and fix this specific card using AI">
+                                🪄 Correct Card
+                            </button>
+                            <span id="queueProgress">0/0</span>
+                        </div>
                     </div>
 
                     <div class="w-full text-center space-y-2 my-auto overflow-hidden">
@@ -282,11 +287,142 @@
 
         let database = JSON.parse(localStorage.getItem('de_comprehensive_core_db')) || defaultSet;
 
-        // ENHANCED AI DATABASE AUDIT FUNCTION (Strictly populates articles for all Nouns)
+        // HELPER TO RE-RENDER ACTIVE CARD UI
+        function renderCardUI(card) {
+            document.getElementById('cardBadge').innerText = card.type;
+            document.getElementById('visualVectorPlaceholder').innerText = card.icon || '🇩🇪';
+
+            const cardFront = document.getElementById('cardFront');
+            cardFront.className = "absolute inset-0 border rounded-[28px] p-6 flex flex-col justify-between items-center backface-hidden shadow-xl transition-all duration-300 " + 
+                (card.article === 'der' ? 'bg-gradient-to-b from-blue-950/40 to-zinc-900 border-blue-900/50' : 
+                 card.article === 'die' ? 'bg-gradient-to-b from-rose-950/30 to-zinc-900 border-rose-900/50' : 
+                 card.article === 'das' ? 'bg-gradient-to-b from-emerald-950/30 to-zinc-900 border-emerald-900/50' : 
+                 'bg-gradient-to-b from-zinc-900 to-zinc-925 border-zinc-800');
+
+            const detailsElem = document.getElementById('deDetails');
+            const verbDetailsElem = document.getElementById('deVerbDetails');
+
+            if(card.type === 'nomen') {
+                const displayArticle = card.article ? card.article.toUpperCase() : 'DER / DIE / DAS';
+                document.getElementById('deWord').innerText = `${displayArticle} ${card.singular}`;
+                let cleanPlural = (card.plural || '').replace(/^(die|der|das)\s+/i, '');
+                detailsElem.innerText = `Plural: die ${cleanPlural || '—'}`;
+                detailsElem.classList.remove('hidden');
+                verbDetailsElem.classList.add('hidden');
+            } else if(card.type === 'verb') {
+                document.getElementById('deWord').innerText = card.singular.toUpperCase();
+                detailsElem.classList.add('hidden');
+                document.getElementById('verbPrateritum').innerText = `Präteritum: ${card.präteritum || '—'}`;
+                document.getElementById('verbPerfekt').innerText = `Perfekt: ${card.perfekt || '—'}`;
+                verbDetailsElem.classList.remove('hidden');
+            } else {
+                document.getElementById('deWord').innerText = card.singular.toUpperCase();
+                detailsElem.innerText = `Typ: ${card.type}`;
+                detailsElem.classList.remove('hidden');
+                verbDetailsElem.classList.add('hidden');
+            }
+            document.getElementById('enWord').innerText = card.english;
+        }
+
+        // SINGLE-CARD AI CORRECTION FUNCTION WITH STRICT LEMMA, PRÄTERITUM & AUXILIARY NORMALIZATION
+        async function correctCurrentCard() {
+            if (!activeQueueSession || activeQueueSession.length === 0) return;
+            const currentCard = activeQueueSession[currentCardIndex];
+            if (!currentCard) return;
+
+            const apiKey = document.getElementById('apiKey').value;
+            const apiUrl = localStorage.getItem('de_api_url') || 'https://api.openai.com/v1/chat/completions';
+            const apiModel = localStorage.getItem('de_api_model') || 'gpt-4o-mini';
+            const targetLang = localStorage.getItem('de_target_lang') || 'English';
+
+            if (!apiKey) return alert("Please configure your API Key in Setup first.");
+
+            const btn = document.getElementById('correctCardBtn');
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Checking...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    body: JSON.stringify({
+                        model: apiModel,
+                        max_tokens: 500,
+                        response_format: { type: "json_object" },
+                        messages: [{
+                            role: "system",
+                            content: `You are an expert German lexicographer. Audit, reclassify, normalize lemma, and correct this single vocabulary item.
+STRICT RULES:
+1. 'singular': MUST ALWAYS be the exact base citation / present infinitive lemma. NEVER use past participles (e.g. 'gesehen', 'abgesehen') as headwords. Normalize verbs to Present Infinitive (e.g. 'sehen', 'absehen').
+2. 'präteritum': MUST be populated with the simple past tense form if type is 'verb' (e.g., 'teilte', 'empfahl').
+3. 'perfekt': MUST ALWAYS use the base infinitive auxiliary form 'haben + [Partizip II]' or 'sein + [Partizip II]' (e.g., 'haben + empfohlen', 'sein + gegangen'). BANNED: 3rd-person conjugated forms like 'hat' or 'ist'.
+4. 'type': MUST be one of 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'.
+5. 'english': Provide a clear, precise translation into ${targetLang}, including preposition pairings or contextual meanings where applicable.
+6. If 'type' is 'nomen': article MUST be 'der', 'die', or 'das'. Plural MUST be provided WITHOUT leading article (e.g., 'Glauben', NOT 'die Glauben').
+7. For non-verb/non-noun types, leave präteritum, perfekt, article, and plural empty ("").
+Return valid JSON matching exact structure: {"type": string, "article": string, "singular": string, "plural": string, "präteritum": string, "perfekt": string, "english": string}`
+                        }, {
+                            role: "user",
+                            content: `Audit and correct this word: ${JSON.stringify(currentCard)}`
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+
+                const fixed = JSON.parse(data.choices[0].message.content);
+
+                const dbIndex = database.findIndex(item => item.id === currentCard.id);
+                if (dbIndex !== -1) {
+                    database[dbIndex].type = fixed.type || database[dbIndex].type;
+                    database[dbIndex].singular = fixed.singular || database[dbIndex].singular;
+                    database[dbIndex].article = fixed.type === "nomen" ? (fixed.article || "der").toLowerCase().trim() : "";
+                    
+                    let cleanPlural = (fixed.plural || '').trim().replace(/^(die|der|das)\s+/i, '');
+                    database[dbIndex].plural = fixed.type === "nomen" ? cleanPlural : "";
+                    
+                    database[dbIndex].präteritum = fixed.type === "verb" ? (fixed.präteritum || "") : "";
+                    
+                    if (fixed.type === "verb" && fixed.perfekt) {
+                        let p = fixed.perfekt.trim();
+                        p = p.replace(/^hat\s+/i, 'haben + ').replace(/^ist\s+/i, 'sein + ');
+                        if (!p.startsWith('haben + ') && !p.startsWith('sein + ')) {
+                            p = `haben + ${p}`;
+                        }
+                        database[dbIndex].perfekt = p;
+                    } else {
+                        database[dbIndex].perfekt = "";
+                    }
+
+                    database[dbIndex].english = fixed.english || database[dbIndex].english;
+
+                    Object.assign(currentCard, database[dbIndex]);
+                    
+                    localStorage.setItem('de_comprehensive_core_db', JSON.stringify(database));
+                    await pushToSupabaseCloud();
+
+                    btn.innerText = "✅ Fixed!";
+                    setTimeout(() => { btn.innerText = originalText; btn.disabled = false; }, 2000);
+
+                    renderCardUI(currentCard);
+                }
+
+            } catch (err) {
+                alert("Card correction failed. Check console or API settings.");
+                console.error(err);
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // FULL DATABASE AUDIT ENGINE WITH LIGHTWEIGHT PAYLOAD & IDENTICAL STRICT RULES
         async function runAiDatabaseAudit() {
             const apiKey = document.getElementById('apiKey').value;
             const apiUrl = localStorage.getItem('de_api_url') || 'https://api.openai.com/v1/chat/completions';
             const apiModel = localStorage.getItem('de_api_model') || 'gpt-4o-mini';
+            const targetLang = localStorage.getItem('de_target_lang') || 'English';
 
             if (!apiKey) return alert("Please configure your API Key in Setup first to run the AI audit.");
             if (database.length === 0) return alert("Your database is empty!");
@@ -302,23 +438,36 @@
                     const chunk = database.slice(i, i + chunkSize);
                     auditBtn.innerText = `Auditing words ${i + 1} to ${Math.min(i + chunkSize, database.length)}/${database.length}...`;
 
-                    const lightweightChunk = chunk.map(c => ({ id: c.id, word: c.singular, currentType: c.type, article: c.article }));
+                    const lightweightChunk = chunk.map(c => ({ 
+                        id: c.id, 
+                        singular: c.singular, 
+                        type: c.type, 
+                        article: c.article, 
+                        plural: c.plural,
+                        präteritum: c.präteritum,
+                        perfekt: c.perfekt,
+                        english: c.english 
+                    }));
 
                     const response = await fetch(apiUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                         body: JSON.stringify({
                             model: apiModel,
-                            max_tokens: 2000,
+                            max_tokens: 3000,
                             response_format: { type: "json_object" },
                             messages: [{
                                 role: "system",
-                                content: `You are a strict German lexicographer. Audit the provided array of vocabulary items.
-STRICT AUDIT RULES:
-1. Determine the correct grammatical 'type': must be 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'.
-2. Adverbs, modal particles, or connectors (like 'endlich', 'bloß', 'schon') MUST be 'adverb' or 'konjunktion', NEVER 'verb'.
-3. For EVERY item where 'type' is 'nomen', you MUST provide the mandatory singular article ('der', 'die', or 'das'). Never leave 'article' blank for nouns.
-Return valid JSON matching exact structure: {"audits": [{"id": number, "type": string, "article": string, "plural": string}]}`
+                                content: `You are an expert German lexicographer. Audit and clean the provided array of vocabulary items.
+STRICT RULES:
+1. 'singular': MUST ALWAYS be the exact base citation / present infinitive lemma. NEVER use past participles (e.g. 'gesehen', 'abgesehen') as headwords. Normalize verbs to Present Infinitive (e.g. 'sehen', 'absehen').
+2. 'präteritum': MUST be populated with the simple past tense form if type is 'verb' (e.g., 'teilte', 'empfahl').
+3. 'perfekt': MUST ALWAYS use the base infinitive auxiliary form 'haben + [Partizip II]' or 'sein + [Partizip II]' (e.g., 'haben + empfohlen', 'sein + gegangen'). BANNED: 3rd-person conjugated forms like 'hat' or 'ist'.
+4. 'type': MUST be one of 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'.
+5. 'english': Provide a clear, precise translation into ${targetLang}, including preposition pairings or contextual meanings where applicable.
+6. If 'type' is 'nomen': article MUST be 'der', 'die', or 'das'. Plural MUST be provided WITHOUT leading article (e.g., 'Glauben', NOT 'die Glauben').
+7. For non-verb/non-noun types, leave präteritum, perfekt, article, and plural empty ("").
+Return valid JSON matching exact structure: {"audits": [{"id": number, "type": string, "article": string, "singular": string, "plural": string, "präteritum": string, "perfekt": string, "english": string}]}`
                             }, {
                                 role: "user",
                                 content: JSON.stringify(lightweightChunk)
@@ -327,7 +476,10 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                     });
 
                     const data = await response.json();
-                    if (!response.ok) throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+                    if (!response.ok) {
+                        console.error("API Audit Error Response:", data);
+                        throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+                    }
 
                     const parsed = JSON.parse(data.choices[0].message.content);
                     const auditedList = parsed.audits || [];
@@ -336,11 +488,29 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                         const index = database.findIndex(dbItem => dbItem.id === audit.id);
                         if (index !== -1 && audit.type) {
                             database[index].type = audit.type;
+                            if (audit.singular) database[index].singular = audit.singular;
+                            if (audit.english) database[index].english = audit.english;
+
                             if (audit.type === "nomen") {
                                 database[index].article = (audit.article || "der").toLowerCase().trim();
-                                if (audit.plural !== undefined) database[index].plural = audit.plural.trim();
+                                let cleanPlural = (audit.plural || '').trim().replace(/^(die|der|das)\s+/i, '');
+                                database[index].plural = cleanPlural;
+                                database[index].präteritum = "";
+                                database[index].perfekt = "";
+                            } else if (audit.type === "verb") {
+                                database[index].article = "";
+                                database[index].plural = "";
+                                database[index].präteritum = audit.präteritum || database[index].präteritum || "";
+                                
+                                let perf = (audit.perfekt || database[index].perfekt || "").trim();
+                                perf = perf.replace(/^hat\s+/i, 'haben + ').replace(/^ist\s+/i, 'sein + ');
+                                if (perf && !perf.startsWith('haben + ') && !perf.startsWith('sein + ')) {
+                                    perf = `haben + ${perf}`;
+                                }
+                                database[index].perfekt = perf;
                             } else {
                                 database[index].article = "";
+                                database[index].plural = "";
                                 database[index].präteritum = "";
                                 database[index].perfekt = "";
                             }
@@ -354,11 +524,11 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                 
                 await pushToSupabaseCloud();
 
-                alert(`AI Audit complete! Successfully audited ${database.length.toLocaleString()} words, populated missing articles, and synced to Supabase.`);
+                alert(`AI Audit complete! Successfully audited all ${database.length.toLocaleString()} words across your database, normalized verb lemmas, base auxiliaries, präteritum, fixed misclassifications, removed duplicate articles, updated translations, and synced with Supabase.`);
 
             } catch (err) {
                 alert("AI Audit failed. Check console for details.");
-                console.error(err);
+                console.error("Audit Failure Details:", err);
             } finally {
                 auditBtn.disabled = false;
                 auditBtn.innerText = originalText;
@@ -616,14 +786,19 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
             items.forEach(w => {
                 if(targetDate.getDay() === 0) targetDate.setDate(targetDate.getDate() + 1);
 
+                let cleanedPlural = (w.plural || '').trim().replace(/^(die|der|das)\s+/i, '');
+                
+                let normPerfekt = (w.perfekt || '').trim();
+                normPerfekt = normPerfekt.replace(/^hat\s+/i, 'haben + ').replace(/^ist\s+/i, 'sein + ');
+
                 database.push({
                     id: Date.now() + Math.random(),
                     type: w.type || 'nomen',
                     article: w.article || '',
                     singular: w.singular,
-                    plural: w.plural || '',
+                    plural: cleanedPlural,
                     präteritum: w.präteritum || '',
-                    perfekt: w.perfekt || '',
+                    perfekt: normPerfekt,
                     declension: w.declension || '',
                     english: w.english,
                     icon: w.icon || '📖',
@@ -686,11 +861,11 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                             response_format: { type: "json_object" },
                             messages: [{
                                 role: "system",
-                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe/adverb", "article": "der/die/das or empty string", "singular": "german base citation / lemma form.", "plural": "plural form or empty string if not noun", "präteritum": "past tense form ONLY if type is 'verb', otherwise empty string", "perfekt": "auxiliary verb + past participle ONLY if type is 'verb', otherwise empty string", "declension": "compact case/declension hint else empty string", "english": "exact translation into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. STRICT RULES: 
+                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe/adverb", "article": "der/die/das or empty string", "singular": "german base citation / infinitive lemma form. NEVER past participles.", "plural": "plural word ONLY without leading article (e.g. 'Glauben', not 'die Glauben') or empty string if not noun", "präteritum": "simple past tense form ONLY if type is 'verb' (e.g. 'teilte'), otherwise empty string", "perfekt": "auxiliary verb in base infinitive form: 'haben + [Partizip II]' or 'sein + [Partizip II]' ONLY if type is 'verb' (BANNED: conjugated 'hat' or 'ist'), otherwise empty string", "declension": "compact case/declension hint else empty string", "english": "exact translation into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. STRICT RULES: 
 1. For 'nomen', you MUST strictly provide the article ('der', 'die', or 'das'). A noun without an article is INVALID.
-2. For 'verb', use Present Infinitive ending in '-en' or '-n' (e.g. 'schlafen'). Präteritum and Perfekt must ONLY be populated for true verbs.
-3. For 'adverb', 'konjunktion', 'präposition', 'pronomen', 'adjektiv', etc., DO NOT classify as 'verb'. Leave präteritum and perfekt completely empty ("").
-4. For pronouns, use base lemma ('ihr', 'er'), never inflected forms ('ihre'). For adjectives, use base uninflected form ('schnell'). Return EXACTLY ${subBatchRequestSize} German items.`
+2. For 'verb', use Present Infinitive ending in '-en' or '-n' (e.g. 'schlafen'). Präteritum must be populated. Perfekt must use 'haben +' or 'sein +'.
+3. For non-verb types, leave präteritum and perfekt completely empty ("").
+Return EXACTLY ${subBatchRequestSize} German items.`
                             }, { 
                                 role: "user", 
                                 content: `Provide ${subBatchRequestSize} German vocabulary items. Main category focus: ${categoryGroup}. Specific sub-domain: ${randomSubTopic}. Translate definitions into ${targetLang}.` 
@@ -715,7 +890,6 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
 
                     for (const item of fetched) {
                         if (item.singular) {
-                            // Enforce mandatory articles for nouns before adding
                             if (item.type === "nomen" && (!item.article || !['der', 'die', 'das'].includes(item.article.toLowerCase().trim()))) {
                                 continue;
                             }
@@ -920,7 +1094,6 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                 const targetWorkspace = document.getElementById('flashcardContainer');
                 const flipper = document.getElementById('cardFlipper');
                 const timeline = document.getElementById('timelineProgress');
-                const cardFront = document.getElementById('cardFront');
 
                 if(activeQueueSession.length === 0) {
                     document.getElementById('welcomeTitle').innerText = "All Clear! 🎉";
@@ -947,46 +1120,9 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                     
                     flipper.classList.remove('rotate-y-180');
                     document.getElementById('queueProgress').innerText = `${currentCardIndex + 1}/${activeQueueSession.length}`;
-                    document.getElementById('cardBadge').innerText = card.type;
-                    document.getElementById('visualVectorPlaceholder').innerText = card.icon || '🇩🇪';
                     
-                    cardFront.className = "absolute inset-0 border rounded-[28px] p-6 flex flex-col justify-between items-center backface-hidden shadow-xl transition-all duration-300 " + 
-                        (card.article === 'der' ? 'bg-gradient-to-b from-blue-950/40 to-zinc-900 border-blue-900/50' : 
-                         card.article === 'die' ? 'bg-gradient-to-b from-rose-950/30 to-zinc-900 border-rose-900/50' : 
-                         card.article === 'das' ? 'bg-gradient-to-b from-emerald-950/30 to-zinc-900 border-emerald-900/50' : 
-                         'bg-gradient-to-b from-zinc-900 to-zinc-925 border-zinc-800');
+                    renderCardUI(card);
 
-                    const detailsElem = document.getElementById('deDetails');
-                    const verbDetailsElem = document.getElementById('deVerbDetails');
-                    const declensionContainer = document.getElementById('deDeclensionDetails');
-                    const declensionText = document.getElementById('declensionText');
-
-                    if(card.type === 'nomen') {
-                        document.getElementById('deWord').innerText = `${card.article.toUpperCase()} ${card.singular}`;
-                        detailsElem.innerText = `Plural: die ${card.plural || '—'}`;
-                        detailsElem.classList.remove('hidden');
-                        verbDetailsElem.classList.add('hidden');
-                    } else if(card.type === 'verb') {
-                        document.getElementById('deWord').innerText = card.singular.toUpperCase();
-                        detailsElem.classList.add('hidden');
-                        document.getElementById('verbPrateritum').innerText = `Präteritum: ${card.präteritum || '—'}`;
-                        document.getElementById('verbPerfekt').innerText = `Perfekt: ${card.perfekt || '—'}`;
-                        verbDetailsElem.classList.remove('hidden');
-                    } else {
-                        document.getElementById('deWord').innerText = card.singular.toUpperCase();
-                        detailsElem.innerText = `Typ: ${card.type}`;
-                        detailsElem.classList.remove('hidden');
-                        verbDetailsElem.classList.add('hidden');
-                    }
-
-                    if (card.declension) {
-                        declensionText.innerText = card.declension;
-                        declensionContainer.classList.remove('hidden');
-                    } else {
-                        declensionContainer.classList.add('hidden');
-                    }
-
-                    document.getElementById('enWord').innerText = card.english;
                     document.getElementById('reverseHeaderLang').innerText = (localStorage.getItem('de_target_lang') || 'English').toUpperCase();
 
                     skipRequestedFlag = false;
@@ -1013,17 +1149,18 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                             if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                             document.getElementById('loopIndicator').innerText = "Plural Form...";
                             timeline.style.width = "75%";
-                            await vocalizeEngine(`die ${card.plural}`, 'de-DE', mySessionId);
+                            let cleanPlural = card.plural.replace(/^(die|der|das)\s+/i, '');
+                            await vocalizeEngine(`die ${cleanPlural}`, 'de-DE', mySessionId);
                             await controllableWait(1000, mySessionId);
                         } else if(card.type === 'verb') {
-                            if(card.präteritum) {
+                            if(card.präteritum && card.präteritum !== '—') {
                                 if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                                 document.getElementById('loopIndicator').innerText = "Präteritum...";
                                 timeline.style.width = "70%";
                                 await vocalizeEngine(card.präteritum, 'de-DE', mySessionId);
                                 await controllableWait(1000, mySessionId);
                             }
-                            if(card.perfekt) {
+                            if(card.perfekt && card.perfekt !== '—') {
                                 if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                                 document.getElementById('loopIndicator').innerText = "Perfekt...";
                                 timeline.style.width = "85%";
