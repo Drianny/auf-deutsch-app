@@ -323,7 +323,7 @@
             document.getElementById('enWord').innerText = card.english;
         }
 
-        // SINGLE-CARD AI CORRECTION FUNCTION WITH STRICT LEMMA, PRÄTERITUM & AUXILIARY NORMALIZATION
+        // SINGLE-CARD AI CORRECTION FUNCTION WITH STRICT TAXONOMY SAFEGUARDS
         async function correctCurrentCard() {
             if (!activeQueueSession || activeQueueSession.length === 0) return;
             const currentCard = activeQueueSession[currentCardIndex];
@@ -353,12 +353,12 @@
                             role: "system",
                             content: `You are an expert German lexicographer. Audit, reclassify, normalize lemma, and correct this single vocabulary item.
 STRICT RULES:
-1. 'singular': MUST ALWAYS be the exact base citation / present infinitive lemma. NEVER use past participles (e.g. 'gesehen', 'abgesehen') as headwords. Normalize verbs to Present Infinitive (e.g. 'sehen', 'absehen').
-2. 'präteritum': MUST be populated with the simple past tense form if type is 'verb' (e.g., 'teilte', 'empfahl').
-3. 'perfekt': MUST ALWAYS use the base infinitive auxiliary form 'haben + [Partizip II]' or 'sein + [Partizip II]' (e.g., 'haben + empfohlen', 'sein + gegangen'). BANNED: 3rd-person conjugated forms like 'hat' or 'ist'.
-4. 'type': MUST be one of 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'.
+1. 'singular': MUST ALWAYS be the exact base citation / present infinitive lemma. NEVER use past participles (e.g. 'gesehen', 'abgesehen') as headwords. Normalize verbs to Present Infinitive (e.g. 'sehen', 'absehen', 'werden').
+2. 'type': MUST be one of 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'. NOTE: Auxiliary/modal/full verbs (like 'werden', 'sein', 'haben') MUST strictly be classified as 'verb', NOT pronouns or particles.
+3. 'präteritum': MUST be populated with the simple past tense form if type is 'verb' (e.g., 'wurde', 'war', 'hatte', 'teilte').
+4. 'perfekt': MUST ALWAYS use the base infinitive auxiliary form 'haben + [Partizip II]' or 'sein + [Partizip II]' (e.g., 'sein + geworden', 'haben + empfohlen'). BANNED: 3rd-person conjugated forms like 'hat' or 'ist'.
 5. 'english': Provide a clear, precise translation into ${targetLang}, including preposition pairings or contextual meanings where applicable.
-6. If 'type' is 'nomen': article MUST be 'der', 'die', or 'das'. Plural MUST be provided WITHOUT leading article (e.g., 'Glauben', NOT 'die Glauben').
+6. If 'type' is 'nomen': article MUST be 'der', 'die', or 'das'. Plural MUST be provided WITHOUT leading article.
 7. For non-verb/non-noun types, leave präteritum, perfekt, article, and plural empty ("").
 Return valid JSON matching exact structure: {"type": string, "article": string, "singular": string, "plural": string, "präteritum": string, "perfekt": string, "english": string}`
                         }, {
@@ -416,7 +416,7 @@ Return valid JSON matching exact structure: {"type": string, "article": string, 
             }
         }
 
-        // FULL DATABASE AUDIT ENGINE WITH LIGHTWEIGHT PAYLOAD & IDENTICAL STRICT RULES
+        // FULL DATABASE AUDIT ENGINE WITH STRICT TAXONOMY SAFEGUARDS
         async function runAiDatabaseAudit() {
             const apiKey = document.getElementById('apiKey').value;
             const apiUrl = localStorage.getItem('de_api_url') || 'https://api.openai.com/v1/chat/completions';
@@ -459,13 +459,12 @@ Return valid JSON matching exact structure: {"type": string, "article": string, 
                                 role: "system",
                                 content: `You are an expert German lexicographer. Audit and clean the provided array of vocabulary items.
 STRICT RULES:
-1. 'singular': MUST ALWAYS be the exact base citation / present infinitive lemma. NEVER use past participles (e.g. 'gesehen', 'abgesehen') as headwords. Normalize verbs to Present Infinitive (e.g. 'sehen', 'absehen').
-2. 'präteritum': MUST be populated with the simple past tense form if type is 'verb' (e.g., 'teilte', 'empfahl').
-3. 'perfekt': MUST ALWAYS use the base infinitive auxiliary form 'haben + [Partizip II]' or 'sein + [Partizip II]' (e.g., 'haben + empfohlen', 'sein + gegangen'). BANNED: 3rd-person conjugated forms like 'hat' or 'ist'.
-4. 'type': MUST be one of 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'.
-5. 'english': Provide a clear, precise translation into ${targetLang}, including preposition pairings or contextual meanings where applicable.
-6. If 'type' is 'nomen': article MUST be 'der', 'die', or 'das'. Plural MUST be provided WITHOUT leading article (e.g., 'Glauben', NOT 'die Glauben').
-7. For non-verb/non-noun types, leave präteritum, perfekt, article, and plural empty ("").
+1. 'singular': MUST ALWAYS be the exact base citation / present infinitive lemma (e.g. 'empfehlen', 'werden'). NEVER use past participles as headwords.
+2. 'type': MUST be one of 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'. NOTE: Auxiliary/modal/full verbs (like 'werden', 'sein', 'haben') MUST strictly be classified as 'verb', NOT pronouns or particles.
+3. 'präteritum': MUST be populated with the simple past tense form if type is 'verb' (e.g., 'wurde', 'teilte').
+4. 'perfekt': MUST ALWAYS use base infinitive auxiliary format: 'haben + [Partizip II]' or 'sein + [Partizip II]' (e.g. 'sein + geworden', 'haben + empfohlen'). ABSOLUTELY NO conjugated forms like 'hat' or 'ist'.
+5. For EVERY 'nomen', strictly provide 'article' ('der', 'die', or 'das') and 'plural' WITHOUT leading articles.
+6. Provide clean, contextual translations into ${targetLang} under 'english'.
 Return valid JSON matching exact structure: {"audits": [{"id": number, "type": string, "article": string, "singular": string, "plural": string, "präteritum": string, "perfekt": string, "english": string}]}`
                             }, {
                                 role: "user",
@@ -862,7 +861,7 @@ Return valid JSON matching exact structure: {"audits": [{"id": number, "type": s
                                 role: "system",
                                 content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe/adverb", "article": "der/die/das or empty string", "singular": "german base citation / infinitive lemma form. NEVER past participles.", "plural": "plural word ONLY without leading article (e.g. 'Glauben', not 'die Glauben') or empty string if not noun", "präteritum": "simple past tense form ONLY if type is 'verb' (e.g. 'teilte'), otherwise empty string", "perfekt": "auxiliary verb in base infinitive form: 'haben + [Partizip II]' or 'sein + [Partizip II]' ONLY if type is 'verb' (BANNED: conjugated 'hat' or 'ist'), otherwise empty string", "declension": "compact case/declension hint else empty string", "english": "exact translation into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. STRICT RULES: 
 1. For 'nomen', you MUST strictly provide the article ('der', 'die', or 'das'). A noun without an article is INVALID.
-2. For 'verb', use Present Infinitive ending in '-en' or '-n' (e.g. 'schlafen'). Präteritum must be populated. Perfekt must use 'haben +' or 'sein +'.
+2. For 'verb', use Present Infinitive ending in '-en' or '-n' (e.g. 'schlafen', 'werden'). Präteritum must be populated. Perfekt must use 'haben +' or 'sein +'.
 3. For non-verb types, leave präteritum and perfekt completely empty ("").
 Return EXACTLY ${subBatchRequestSize} German items.`
                             }, { 
