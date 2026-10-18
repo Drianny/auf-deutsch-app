@@ -86,6 +86,11 @@
             </div>
         </div>
 
+        <!-- AI DATABASE AUDIT BUTTON -->
+        <button onclick="runAiDatabaseAudit()" id="auditBtn" class="w-full bg-purple-950/60 border border-purple-800 text-purple-300 font-bold py-2 rounded-xl text-[10px] hover:bg-purple-900/60 transition">
+            🤖 AI Database Audit & Clean
+        </button>
+
         <div class="bg-zinc-950/60 border border-zinc-800 p-2 rounded-xl space-y-1.5">
             <div class="flex justify-between items-center text-[9px] font-bold text-zinc-400 uppercase">
                 <span>Study Plan Pacing</span>
@@ -276,6 +281,89 @@
         ];
 
         let database = JSON.parse(localStorage.getItem('de_comprehensive_core_db')) || defaultSet;
+
+        // ENHANCED AI DATABASE AUDIT FUNCTION (Strictly populates articles for all Nouns)
+        async function runAiDatabaseAudit() {
+            const apiKey = document.getElementById('apiKey').value;
+            const apiUrl = localStorage.getItem('de_api_url') || 'https://api.openai.com/v1/chat/completions';
+            const apiModel = localStorage.getItem('de_api_model') || 'gpt-4o-mini';
+
+            if (!apiKey) return alert("Please configure your API Key in Setup first to run the AI audit.");
+            if (database.length === 0) return alert("Your database is empty!");
+
+            const auditBtn = document.getElementById('auditBtn');
+            const originalText = auditBtn.innerText;
+            auditBtn.disabled = true;
+
+            const chunkSize = 40;
+
+            try {
+                for (let i = 0; i < database.length; i += chunkSize) {
+                    const chunk = database.slice(i, i + chunkSize);
+                    auditBtn.innerText = `Auditing words ${i + 1} to ${Math.min(i + chunkSize, database.length)}/${database.length}...`;
+
+                    const lightweightChunk = chunk.map(c => ({ id: c.id, word: c.singular, currentType: c.type, article: c.article }));
+
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                        body: JSON.stringify({
+                            model: apiModel,
+                            max_tokens: 2000,
+                            response_format: { type: "json_object" },
+                            messages: [{
+                                role: "system",
+                                content: `You are a strict German lexicographer. Audit the provided array of vocabulary items.
+STRICT AUDIT RULES:
+1. Determine the correct grammatical 'type': must be 'nomen', 'verb', 'adjektiv', 'konjunktion', 'präposition', 'pronomen', 'fragewort', 'zeitangabe', or 'adverb'.
+2. Adverbs, modal particles, or connectors (like 'endlich', 'bloß', 'schon') MUST be 'adverb' or 'konjunktion', NEVER 'verb'.
+3. For EVERY item where 'type' is 'nomen', you MUST provide the mandatory singular article ('der', 'die', or 'das'). Never leave 'article' blank for nouns.
+Return valid JSON matching exact structure: {"audits": [{"id": number, "type": string, "article": string, "plural": string}]}`
+                            }, {
+                                role: "user",
+                                content: JSON.stringify(lightweightChunk)
+                            }]
+                        })
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+
+                    const parsed = JSON.parse(data.choices[0].message.content);
+                    const auditedList = parsed.audits || [];
+
+                    auditedList.forEach(audit => {
+                        const index = database.findIndex(dbItem => dbItem.id === audit.id);
+                        if (index !== -1 && audit.type) {
+                            database[index].type = audit.type;
+                            if (audit.type === "nomen") {
+                                database[index].article = (audit.article || "der").toLowerCase().trim();
+                                if (audit.plural !== undefined) database[index].plural = audit.plural.trim();
+                            } else {
+                                database[index].article = "";
+                                database[index].präteritum = "";
+                                database[index].perfekt = "";
+                            }
+                        }
+                    });
+                }
+
+                localStorage.setItem('de_comprehensive_core_db', JSON.stringify(database));
+                localStorage.removeItem('de_weekly_shuffled_order');
+                updateDisplayCounters();
+                
+                await pushToSupabaseCloud();
+
+                alert(`AI Audit complete! Successfully audited ${database.length.toLocaleString()} words, populated missing articles, and synced to Supabase.`);
+
+            } catch (err) {
+                alert("AI Audit failed. Check console for details.");
+                console.error(err);
+            } finally {
+                auditBtn.disabled = false;
+                auditBtn.innerText = originalText;
+            }
+        }
 
         let activePaceDays = parseInt(localStorage.getItem('de_schedule_days')) || 3;
         let activeBatchSize = parseInt(localStorage.getItem('de_schedule_batch_size')) || 10;
@@ -598,7 +686,11 @@
                             response_format: { type: "json_object" },
                             messages: [{
                                 role: "system",
-                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe/adverb", "article": "der/die/das or empty string", "singular": "german base nominative form", "plural": "plural form or empty string if not noun", "präteritum": "past tense form if verb else empty string", "perfekt": "auxiliary verb + past participle (e.g. haben + empfohlen) if verb else empty string", "declension": "compact case/declension hint e.g. Akk: jemanden | Dat: jemandem else empty string", "english": "exact translation of the German word into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. Return EXACTLY ${subBatchRequestSize} German base items across ALL proficiency levels (A1 to C2).`
+                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe/adverb", "article": "der/die/das or empty string", "singular": "german base citation / lemma form.", "plural": "plural form or empty string if not noun", "präteritum": "past tense form ONLY if type is 'verb', otherwise empty string", "perfekt": "auxiliary verb + past participle ONLY if type is 'verb', otherwise empty string", "declension": "compact case/declension hint else empty string", "english": "exact translation into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. STRICT RULES: 
+1. For 'nomen', you MUST strictly provide the article ('der', 'die', or 'das'). A noun without an article is INVALID.
+2. For 'verb', use Present Infinitive ending in '-en' or '-n' (e.g. 'schlafen'). Präteritum and Perfekt must ONLY be populated for true verbs.
+3. For 'adverb', 'konjunktion', 'präposition', 'pronomen', 'adjektiv', etc., DO NOT classify as 'verb'. Leave präteritum and perfekt completely empty ("").
+4. For pronouns, use base lemma ('ihr', 'er'), never inflected forms ('ihre'). For adjectives, use base uninflected form ('schnell'). Return EXACTLY ${subBatchRequestSize} German items.`
                             }, { 
                                 role: "user", 
                                 content: `Provide ${subBatchRequestSize} German vocabulary items. Main category focus: ${categoryGroup}. Specific sub-domain: ${randomSubTopic}. Translate definitions into ${targetLang}.` 
@@ -623,6 +715,10 @@
 
                     for (const item of fetched) {
                         if (item.singular) {
+                            // Enforce mandatory articles for nouns before adding
+                            if (item.type === "nomen" && (!item.article || !['der', 'die', 'das'].includes(item.article.toLowerCase().trim()))) {
+                                continue;
+                            }
                             const singularLower = item.singular.toLowerCase();
                             if (!existingSingulars.has(singularLower)) {
                                 const isAlreadyInBatch = gatheredNewWords.some(w => w.singular.toLowerCase() === singularLower);
@@ -658,7 +754,7 @@
 
         let isPaused = false;
         let sessionResetRequested = false;
-        let activeSessionLockId = 0; // STRICTOR SESSION GUARD
+        let activeSessionLockId = 0;
         let currentCardIndex = 0;
         let activeQueueSession = [];
         let skipRequestedFlag = false;
@@ -698,6 +794,21 @@
             }
         }
 
+        function getBestGermanVoice() {
+            const voices = window.speechSynthesis.getVoices();
+            let deVoice = voices.find(v => v.lang === 'de-DE' && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Premium') || v.name.includes('Siri')));
+            if (!deVoice) {
+                deVoice = voices.find(v => v.lang.startsWith('de'));
+            }
+            return deVoice || null;
+        }
+
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                window.speechSynthesis.getVoices();
+            };
+        }
+
         function vocalizeEngine(phrase, lang = 'de-DE', lockId) {
             return new Promise((res) => {
                 if (activeSessionLockId !== lockId || sessionResetRequested || skipRequestedFlag) return res();
@@ -711,6 +822,11 @@
                 const speakToken = new SpeechSynthesisUtterance(spokenPhrase);
                 speakToken.lang = lang;
                 speakToken.rate = 0.85;
+
+                if (lang.startsWith('de')) {
+                    const nativeVoice = getBestGermanVoice();
+                    if (nativeVoice) speakToken.voice = nativeVoice;
+                }
 
                 speakToken.onend = () => res();
                 speakToken.onerror = () => res();
@@ -737,7 +853,7 @@
 
         function resetSession() {
             sessionResetRequested = true;
-            activeSessionLockId++; // INVALIDATE ALL ACTIVE LOOPS
+            activeSessionLockId++;
             window.speechSynthesis.cancel();
             isPaused = false;
             document.getElementById('pausePlayBtn').innerText = "⏸ Pause";
@@ -750,7 +866,7 @@
 
         function switchToWeeklyLoop() {
             sessionResetRequested = true;
-            activeSessionLockId++; // INVALIDATE ALL ACTIVE LOOPS
+            activeSessionLockId++;
             window.speechSynthesis.cancel();
             isPaused = false;
             document.getElementById('pausePlayBtn').innerText = "⏸ Pause";
@@ -785,7 +901,7 @@
 
         function startManualSession() { 
             sessionResetRequested = true;
-            activeSessionLockId++; // INVALIDATE ALL ACTIVE LOOPS
+            activeSessionLockId++;
             window.speechSynthesis.cancel();
             setTimeout(() => {
                 startSession(true); 
@@ -796,7 +912,7 @@
             sessionResetRequested = false;
             window.speechSynthesis.cancel();
             
-            const mySessionId = ++activeSessionLockId; // CLAIM UNIQUE SESSION LOCK TOKEN
+            const mySessionId = ++activeSessionLockId;
             
             try {
                 activeQueueSession = extractWorkingQueue(forceManual);
@@ -845,7 +961,7 @@
                     const declensionContainer = document.getElementById('deDeclensionDetails');
                     const declensionText = document.getElementById('declensionText');
 
-                    if(card.type === 'nomen' && card.article) {
+                    if(card.type === 'nomen') {
                         document.getElementById('deWord').innerText = `${card.article.toUpperCase()} ${card.singular}`;
                         detailsElem.innerText = `Plural: die ${card.plural || '—'}`;
                         detailsElem.classList.remove('hidden');
@@ -883,7 +999,7 @@
 
                         document.getElementById('loopIndicator').innerText = "Listen Loop 1/2";
                         timeline.style.width = "40%";
-                        const mainVoicePrompt = (card.article ? `${card.article} ${card.singular}` : card.singular);
+                        const mainVoicePrompt = (card.type === 'nomen' && card.article) ? `${card.article} ${card.singular}` : card.singular;
                         await vocalizeEngine(mainVoicePrompt, 'de-DE', mySessionId);
                         await controllableWait(1000, mySessionId);
 
@@ -893,7 +1009,7 @@
                         await vocalizeEngine(mainVoicePrompt, 'de-DE', mySessionId);
                         await controllableWait(1000, mySessionId);
 
-                        if(card.type === 'nomen' && card.plural) {
+                        if(card.type === 'nomen' && card.plural && card.plural !== '—') {
                             if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                             document.getElementById('loopIndicator').innerText = "Plural Form...";
                             timeline.style.width = "75%";
