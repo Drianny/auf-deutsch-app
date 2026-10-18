@@ -29,9 +29,31 @@
 
     <!-- COLLAPSIBLE SETTINGS PANEL -->
     <div id="settingsPanel" class="hidden w-full max-w-sm mx-auto bg-zinc-900 border border-zinc-800 p-3 rounded-2xl my-1 space-y-2 flex-shrink-0 z-50 overflow-y-auto max-h-[85vh]">
-        <div>
-            <label class="block text-[9px] text-zinc-400 font-bold uppercase mb-1">OpenAI Secret API Key</label>
-            <input type="password" id="apiKey" placeholder="sk-proj-..." class="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2 text-xs text-white outline-none focus:border-emerald-500">
+        
+        <!-- CUSTOM AI API CONFIGURATION -->
+        <div class="bg-zinc-950/60 border border-zinc-800 p-2 rounded-xl space-y-1.5">
+            <span class="block text-[9px] font-bold text-emerald-400 uppercase">AI Provider & Translation Language</span>
+            <div>
+                <label class="block text-[8px] text-zinc-500 uppercase font-bold mb-0.5">API Endpoint URL</label>
+                <input type="text" id="apiUrlInput" placeholder="https://api.openai.com/v1/chat/completions" class="w-full bg-zinc-900 border border-zinc-700 text-white rounded-lg p-1 text-xs outline-none focus:border-emerald-500 font-mono">
+            </div>
+            <div>
+                <label class="block text-[8px] text-zinc-500 uppercase font-bold mb-0.5">API Key</label>
+                <input type="password" id="apiKey" placeholder="sk-proj-... or api key" class="w-full bg-zinc-900 border border-zinc-700 text-white rounded-lg p-1 text-xs outline-none focus:border-emerald-500">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="block text-[8px] text-zinc-500 uppercase font-bold mb-0.5">Model Name</label>
+                    <input type="text" id="apiModelInput" placeholder="gpt-4o-mini" class="w-full bg-zinc-900 border border-zinc-700 text-white rounded-lg p-1 text-xs outline-none focus:border-emerald-500 font-mono">
+                </div>
+                <div>
+                    <label class="block text-[8px] text-zinc-500 uppercase font-bold mb-0.5">Translation Lang</label>
+                    <input type="text" id="targetLangInput" placeholder="English" class="w-full bg-zinc-900 border border-zinc-700 text-white rounded-lg p-1 text-xs outline-none focus:border-emerald-500 font-bold">
+                </div>
+            </div>
+            <button onclick="saveAiConfig()" class="w-full bg-emerald-950/60 border border-emerald-800 text-emerald-300 font-bold py-1 rounded-lg text-[9px] hover:bg-emerald-900 transition mt-1">
+                💾 Save AI Settings
+            </button>
         </div>
 
         <!-- SUPABASE CLOUD SYNC -->
@@ -144,7 +166,7 @@
                 ▶
             </button>
 
-            <div id="cardFlipper" class="w-full h-full transform-style-3d transition-transform duration-700 relative">
+            <div id="cardFlipper" class="w-full h-full transform-style-3d transition-transform duration-700 relative cursor-pointer" onclick="manualCardPeek(event)">
                 
                 <!-- CARD FACE FRONT -->
                 <div id="cardFront" class="absolute inset-0 bg-gradient-to-b from-zinc-900 to-zinc-925 border border-zinc-800 rounded-[28px] p-6 flex flex-col justify-between items-center backface-hidden shadow-xl">
@@ -178,7 +200,7 @@
                         </div>
                         <div class="flex justify-between items-center px-1">
                             <p id="loopIndicator" class="text-[9px] font-mono text-zinc-600 uppercase tracking-widest truncate">2s Pause...</p>
-                            <div class="flex space-x-1">
+                            <div class="flex space-x-1" onclick="event.stopPropagation()">
                                 <button onclick="togglePauseSession()" id="pausePlayBtn" class="text-[8px] font-mono bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded hover:text-white">⏸ Pause</button>
                                 <button onclick="resetSession()" class="text-[8px] font-mono bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded hover:text-white">⏹ Reset</button>
                             </div>
@@ -188,7 +210,7 @@
 
                 <!-- CARD FACE REVERSE -->
                 <div class="absolute inset-0 bg-zinc-900 border border-zinc-800 rounded-[28px] p-6 flex flex-col justify-between items-center backface-hidden rotate-y-180 shadow-xl">
-                    <span class="text-[9px] font-mono tracking-widest text-indigo-400 uppercase bg-indigo-500/10 px-2.5 py-0.5 rounded-full">Bedeutung</span>
+                    <span id="reverseHeaderLang" class="text-[9px] font-mono tracking-widest text-indigo-400 uppercase bg-indigo-500/10 px-2.5 py-0.5 rounded-full">Bedeutung</span>
                     
                     <div class="text-center space-y-1 my-auto w-full overflow-hidden">
                         <h3 id="enWord" class="text-2xl font-black tracking-tight text-indigo-300 break-words px-1 max-w-full leading-tight"></h3>
@@ -260,9 +282,24 @@
         document.getElementById('batchSizeInput').value = activeBatchSize;
         document.getElementById('lexiconTargetInput').value = activeLexiconTarget;
 
+        document.getElementById('apiUrlInput').value = localStorage.getItem('de_api_url') || 'https://api.openai.com/v1/chat/completions';
+        document.getElementById('apiModelInput').value = localStorage.getItem('de_api_model') || 'gpt-4o-mini';
+        document.getElementById('targetLangInput').value = localStorage.getItem('de_target_lang') || 'English';
+
         document.getElementById('supabaseUrlInput').value = localStorage.getItem('de_supabase_url') || '';
         document.getElementById('supabaseKeyInput').value = localStorage.getItem('de_supabase_key') || '';
         document.getElementById('userSyncKeyInput').value = localStorage.getItem('de_user_sync_key') || '';
+
+        function saveAiConfig() {
+            const url = document.getElementById('apiUrlInput').value.trim() || 'https://api.openai.com/v1/chat/completions';
+            const model = document.getElementById('apiModelInput').value.trim() || 'gpt-4o-mini';
+            const lang = document.getElementById('targetLangInput').value.trim() || 'English';
+
+            localStorage.setItem('de_api_url', url);
+            localStorage.setItem('de_api_model', model);
+            localStorage.setItem('de_target_lang', lang);
+            alert("AI settings saved!");
+        }
 
         function saveSupabaseConfig() {
             const url = document.getElementById('supabaseUrlInput').value.trim();
@@ -518,7 +555,11 @@
 
         async function generateAIVocabBatch(categoryGroup) {
             const apiKey = document.getElementById('apiKey').value;
-            if(!apiKey) return alert("Please configure your OpenAI API Key in Setup first.");
+            const apiUrl = localStorage.getItem('de_api_url') || 'https://api.openai.com/v1/chat/completions';
+            const apiModel = localStorage.getItem('de_api_model') || 'gpt-4o-mini';
+            const targetLang = localStorage.getItem('de_target_lang') || 'English';
+
+            if(!apiKey) return alert("Please configure your API Key in Setup first.");
 
             const activeBtn = event.target;
             const originalText = activeBtn.innerText;
@@ -540,19 +581,19 @@
                     const requestCount = remainingNeeded + 15;
                     const currentExclusions = [...shuffledExisting.slice(0, 250), ...gatheredNewWords.map(w => w.singular.toLowerCase())].join(", ");
 
-                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    const response = await fetch(apiUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                         body: JSON.stringify({
-                            model: "gpt-4o-mini",
+                            model: apiModel,
                             max_tokens: 4000,
                             response_format: { type: "json_object" },
                             messages: [{
                                 role: "system",
-                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe", "article": "der/die/das or empty string", "singular": "german base nominative form", "plural": "plural form or empty string if not noun", "präteritum": "past tense form if verb else empty string", "perfekt": "auxiliary verb + past participle (e.g. haben + empfohlen) if verb else empty string", "declension": "compact case/declension hint e.g. Akk: jemanden | Dat: jemandem else empty string", "english": "exact english translation without internal quotation marks", "icon": "single descriptive emoji"}]}. Return EXACTLY ${requestCount} unique German base items across ALL proficiency levels (A1 to C2).`
+                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe", "article": "der/die/das or empty string", "singular": "german base nominative form", "plural": "plural form or empty string if not noun", "präteritum": "past tense form if verb else empty string", "perfekt": "auxiliary verb + past participle (e.g. haben + empfohlen) if verb else empty string", "declension": "compact case/declension hint e.g. Akk: jemanden | Dat: jemandem else empty string", "english": "exact translation of the German word into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. Return EXACTLY ${requestCount} unique German base items across ALL proficiency levels (A1 to C2).`
                             }, { 
                                 role: "user", 
-                                content: `Provide ${requestCount} German vocabulary cards across all levels (A1 to C2). Category focus: ${categoryGroup}. DO NOT include any of these existing words: ${currentExclusions}.` 
+                                content: `Provide ${requestCount} German vocabulary cards across all levels (A1 to C2). Category focus: ${categoryGroup}. Translate definitions into ${targetLang}. DO NOT include any of these existing words: ${currentExclusions}.` 
                             }]
                         })
                     });
@@ -609,6 +650,40 @@
         let activeQueueSession = [];
         let skipRequestedFlag = false;
         let skipDirection = 0;
+        let peekTimeout = null;
+
+        function getTargetLangLocale() {
+            const targetLang = (localStorage.getItem('de_target_lang') || 'English').toLowerCase();
+            
+            if (targetLang.includes('span') || targetLang.includes('esp')) return 'es-ES';
+            if (targetLang.includes('fren') || targetLang.includes('franz') || targetLang.includes('français')) return 'fr-FR';
+            if (targetLang.includes('ital')) return 'it-IT';
+            if (targetLang.includes('port')) return 'pt-PT';
+            if (targetLang.includes('dutch') || targetLang.includes('niederl')) return 'nl-NL';
+            if (targetLang.includes('pol')) return 'pl-PL';
+            if (targetLang.includes('russ') || targetLang.includes('rus')) return 'ru-RU';
+            if (targetLang.includes('jap')) return 'ja-JP';
+            if (targetLang.includes('chin') || targetLang.includes('mand')) return 'zh-CN';
+            
+            return 'en-US';
+        }
+
+        function manualCardPeek(e) {
+            if (e && e.target.closest('button')) return;
+
+            const flipper = document.getElementById('cardFlipper');
+            if (!flipper) return;
+
+            if (peekTimeout) clearTimeout(peekTimeout);
+
+            flipper.classList.toggle('rotate-y-180');
+
+            if (flipper.classList.contains('rotate-y-180')) {
+                peekTimeout = setTimeout(() => {
+                    flipper.classList.remove('rotate-y-180');
+                }, 2000);
+            }
+        }
 
         function vocalizeEngine(phrase, lang = 'de-DE') {
             return new Promise((res) => {
@@ -742,6 +817,7 @@
                     }
 
                     document.getElementById('enWord').innerText = card.english;
+                    document.getElementById('reverseHeaderLang').innerText = (localStorage.getItem('de_target_lang') || 'English').toUpperCase();
 
                     skipRequestedFlag = false;
                     skipDirection = 0;
@@ -790,7 +866,8 @@
                         timeline.style.width = "100%";
                         flipper.classList.add('rotate-y-180');
 
-                        await vocalizeEngine(card.english, 'en-US');
+                        const targetLocale = getTargetLangLocale();
+                        await vocalizeEngine(card.english, targetLocale);
                         await controllableWait(2500);
 
                     } catch (loopErr) {
