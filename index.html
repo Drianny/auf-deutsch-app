@@ -119,16 +119,16 @@
 
         <div class="grid grid-cols-2 gap-2">
             <button onclick="generateAIVocabBatch('Nouns')" id="genNounBtn" class="bg-zinc-800 border border-zinc-700 text-emerald-400 font-bold py-1.5 rounded-xl text-[10px] transition">
-                + 30 Nouns
+                + 50 Nouns
             </button>
             <button onclick="generateAIVocabBatch('Verbs')" id="genVerbBtn" class="bg-zinc-800 border border-zinc-700 text-teal-400 font-bold py-1.5 rounded-xl text-[10px] transition">
-                + 30 Verbs
+                + 50 Verbs
             </button>
-            <button onclick="generateAIVocabBatch('Prepositions & Conjunctions (like ob, obwohl, durch, während)')" id="genConjBtn" class="bg-zinc-800 border border-zinc-700 text-indigo-400 font-bold py-1.5 rounded-xl text-[10px] transition">
-                + Prep & Conj
+            <button onclick="generateAIVocabBatch('Prepositions, Conjunctions, Modal Particles & Connectors')" id="genConjBtn" class="bg-zinc-800 border border-zinc-700 text-indigo-400 font-bold py-1.5 rounded-xl text-[10px] transition">
+                + Prep, Conj & Particles
             </button>
-            <button onclick="generateAIVocabBatch('Time Expressions, Question Words & Pronouns (like jemand, gestern, warum, wer)')" id="genTimeBtn" class="bg-zinc-800 border border-zinc-700 text-amber-400 font-bold py-1.5 rounded-xl text-[10px] transition">
-                + Time & Q-Words
+            <button onclick="generateAIVocabBatch('Time Expressions, Question Words, Pronouns & Adverbs')" id="genTimeBtn" class="bg-zinc-800 border border-zinc-700 text-amber-400 font-bold py-1.5 rounded-xl text-[10px] transition">
+                + Time, Q-Words & Adverbs
             </button>
         </div>
 
@@ -235,7 +235,7 @@
             </div>
             
             <div class="flex flex-col gap-2 max-w-[220px] mx-auto">
-                <button onclick="startSession()" class="bg-white text-black font-bold text-xs tracking-tight px-6 py-2 rounded-full hover:bg-zinc-200 transition shadow-md">
+                <button onclick="startSession(false)" class="bg-white text-black font-bold text-xs tracking-tight px-6 py-2 rounded-full hover:bg-zinc-200 transition shadow-md">
                     Start Audio Loop
                 </button>
                 <button onclick="reshuffleWeeklyQueue()" class="bg-zinc-800 border border-zinc-700 text-amber-400 font-bold text-[10px] tracking-wide px-4 py-1.5 rounded-full hover:bg-zinc-700 transition">
@@ -247,7 +247,10 @@
     </main>
 
     <!-- FIXED LOWER FOOTER DOCK -->
-    <footer class="w-full max-w-sm mx-auto flex justify-center flex-shrink-0 py-1">
+    <footer class="w-full max-w-sm mx-auto flex flex-col items-center gap-1 flex-shrink-0 py-1">
+        <button id="returnToWeeklyBtn" onclick="switchToWeeklyLoop()" class="hidden text-[10px] font-bold text-emerald-400 tracking-wider uppercase hover:text-emerald-300 transition bg-emerald-950/40 border border-emerald-800/60 px-3 py-1 rounded-full">
+            ⬅️ Back to Weekly Loop
+        </button>
         <button id="manualTriggerBtn" onclick="startManualSession()" class="text-[10px] font-bold text-zinc-600 tracking-wider uppercase hover:text-zinc-400 transition">
             🔄 Manual Full Deck Review
         </button>
@@ -460,26 +463,25 @@
             const targetWeeklyGoal = activePaceDays * activeBatchSize;
             const customOrder = JSON.parse(localStorage.getItem('de_weekly_shuffled_order'));
             
-            if (customOrder && customOrder.length === targetWeeklyGoal) {
+            if (customOrder && Array.isArray(customOrder) && customOrder.length === targetWeeklyGoal) {
                 let map = new Map(database.map(item => [item.id, item]));
                 let ordered = customOrder.map(id => map.get(id)).filter(Boolean);
-                if (ordered.length > 0) return ordered;
+                if (ordered.length === targetWeeklyGoal) return ordered;
             }
+            
             return database.slice(0, targetWeeklyGoal);
         }
 
         function reshuffleWeeklyQueue() {
             const targetWeeklyGoal = activePaceDays * activeBatchSize;
-            let pool = database.slice(0, targetWeeklyGoal);
-            if (pool.length === 0) return alert("No words in inventory!");
+            if (database.length === 0) return alert("No words in inventory!");
             
-            for (let i = pool.length - 1; i > 0; i--) {
-                let j = Math.floor(Math.random() * (i + 1));
-                [pool[i], pool[j]] = [pool[j], pool[i]];
-            }
+            let shuffledFull = [...database].sort(() => 0.5 - Math.random());
+            let pool = shuffledFull.slice(0, Math.min(targetWeeklyGoal, database.length));
             
             localStorage.setItem('de_weekly_shuffled_order', JSON.stringify(pool.map(c => c.id)));
-            alert("Weekly queue successfully reshuffled!");
+            updateDisplayCounters();
+            alert(`Weekly queue reshuffled! Selected ${pool.length} words for this week.`);
         }
 
         function updateReaderHealthDisplay() {
@@ -565,35 +567,41 @@
             const originalText = activeBtn.innerText;
             activeBtn.disabled = true; 
 
-            const existingWords = database.map(item => item.singular.toLowerCase());
-            const shuffledExisting = [...existingWords].sort(() => 0.5 - Math.random());
-
             let gatheredNewWords = [];
             let attempts = 0;
-            const targetCount = 30;
+            const targetCount = 50;
+
+            const subTopics = [
+                "logical connectors, contrast words, and sentence starters",
+                "modal particles, emphasis words, and conversational fillers",
+                "time adverbs, frequency indicators, and sequence markers",
+                "spatial prepositions, movement connectors, and relational adverbs",
+                "cause-and-effect connectors, conditional words, and clause linkers",
+                "general essential grammar connectors and transition words"
+            ];
 
             try {
-                while (gatheredNewWords.length < targetCount && attempts < 6) {
+                while (gatheredNewWords.length < targetCount && attempts < 25) {
                     attempts++;
-                    activeBtn.innerText = `Generating (${gatheredNewWords.length}/${targetCount})...`;
+                    activeBtn.innerText = `Fetching (${gatheredNewWords.length}/${targetCount})...`;
 
                     const remainingNeeded = targetCount - gatheredNewWords.length;
-                    const requestCount = remainingNeeded + 15;
-                    const currentExclusions = [...shuffledExisting.slice(0, 250), ...gatheredNewWords.map(w => w.singular.toLowerCase())].join(", ");
+                    const subBatchRequestSize = Math.min(15, remainingNeeded + 3);
+                    const randomSubTopic = subTopics[Math.floor(Math.random() * subTopics.length)];
 
                     const response = await fetch(apiUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                         body: JSON.stringify({
                             model: apiModel,
-                            max_tokens: 4000,
+                            max_tokens: 1800,
                             response_format: { type: "json_object" },
                             messages: [{
                                 role: "system",
-                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe", "article": "der/die/das or empty string", "singular": "german base nominative form", "plural": "plural form or empty string if not noun", "präteritum": "past tense form if verb else empty string", "perfekt": "auxiliary verb + past participle (e.g. haben + empfohlen) if verb else empty string", "declension": "compact case/declension hint e.g. Akk: jemanden | Dat: jemandem else empty string", "english": "exact translation of the German word into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. Return EXACTLY ${requestCount} unique German base items across ALL proficiency levels (A1 to C2).`
+                                content: `You output strict valid JSON matching array signature: {"words": [{"type": "nomen/verb/adjektiv/konjunktion/präposition/pronomen/fragewort/zeitangabe/adverb", "article": "der/die/das or empty string", "singular": "german base nominative form", "plural": "plural form or empty string if not noun", "präteritum": "past tense form if verb else empty string", "perfekt": "auxiliary verb + past participle (e.g. haben + empfohlen) if verb else empty string", "declension": "compact case/declension hint e.g. Akk: jemanden | Dat: jemandem else empty string", "english": "exact translation of the German word into ${targetLang} without internal quotation marks", "icon": "single descriptive emoji"}]}. Return EXACTLY ${subBatchRequestSize} German base items across ALL proficiency levels (A1 to C2).`
                             }, { 
                                 role: "user", 
-                                content: `Provide ${requestCount} German vocabulary cards across all levels (A1 to C2). Category focus: ${categoryGroup}. Translate definitions into ${targetLang}. DO NOT include any of these existing words: ${currentExclusions}.` 
+                                content: `Provide ${subBatchRequestSize} German vocabulary items. Main category focus: ${categoryGroup}. Specific sub-domain: ${randomSubTopic}. Translate definitions into ${targetLang}.` 
                             }]
                         })
                     });
@@ -606,25 +614,29 @@
                     try {
                         parsed = JSON.parse(rawContent);
                     } catch (parseErr) {
-                        console.warn("JSON parse glitch encountered, attempting recovery...", parseErr);
+                        console.warn("JSON parse glitch encountered, retrying batch...", parseErr);
                         continue;
                     }
 
                     const fetched = parsed.words || [];
+                    const existingSingulars = new Set(database.map(item => item.singular.toLowerCase()));
 
                     for (const item of fetched) {
-                        if (item.singular && !existingWords.includes(item.singular.toLowerCase())) {
-                            const isAlreadyAdded = gatheredNewWords.some(w => w.singular.toLowerCase() === item.singular.toLowerCase());
-                            if (!isAlreadyAdded) {
-                                gatheredNewWords.push(item);
-                                if (gatheredNewWords.length >= targetCount) break;
+                        if (item.singular) {
+                            const singularLower = item.singular.toLowerCase();
+                            if (!existingSingulars.has(singularLower)) {
+                                const isAlreadyInBatch = gatheredNewWords.some(w => w.singular.toLowerCase() === singularLower);
+                                if (!isAlreadyInBatch) {
+                                    gatheredNewWords.push(item);
+                                    if (gatheredNewWords.length >= targetCount) break;
+                                }
                             }
                         }
                     }
                 }
 
                 if (gatheredNewWords.length === 0) {
-                    alert("No new unique words were generated. Try clicking again!");
+                    alert("No new items could be fetched for this category. Try another button!");
                 } else {
                     scheduleNewBatch(gatheredNewWords);
                     alert(`Successfully added ${gatheredNewWords.length} new unique items! Total inventory: ${database.length.toLocaleString()} / ${activeLexiconTarget.toLocaleString()} words`);
@@ -646,6 +658,7 @@
 
         let isPaused = false;
         let sessionResetRequested = false;
+        let activeSessionLockId = 0; // STRICTOR SESSION GUARD
         let currentCardIndex = 0;
         let activeQueueSession = [];
         let skipRequestedFlag = false;
@@ -685,10 +698,10 @@
             }
         }
 
-        function vocalizeEngine(phrase, lang = 'de-DE') {
+        function vocalizeEngine(phrase, lang = 'de-DE', lockId) {
             return new Promise((res) => {
+                if (activeSessionLockId !== lockId || sessionResetRequested || skipRequestedFlag) return res();
                 window.speechSynthesis.cancel();
-                if (sessionResetRequested || skipRequestedFlag) return res();
                 
                 let spokenPhrase = phrase;
                 if (lang.startsWith('en')) {
@@ -702,7 +715,11 @@
                 speakToken.onend = () => res();
                 speakToken.onerror = () => res();
 
-                window.speechSynthesis.speak(speakToken);
+                if (activeSessionLockId === lockId && !sessionResetRequested && !skipRequestedFlag) {
+                    window.speechSynthesis.speak(speakToken);
+                } else {
+                    res();
+                }
             });
         }
 
@@ -720,21 +737,39 @@
 
         function resetSession() {
             sessionResetRequested = true;
+            activeSessionLockId++; // INVALIDATE ALL ACTIVE LOOPS
             window.speechSynthesis.cancel();
             isPaused = false;
             document.getElementById('pausePlayBtn').innerText = "⏸ Pause";
             
             document.getElementById('flashcardContainer').classList.add('hidden');
             document.getElementById('idleDisplay').classList.remove('hidden');
+            document.getElementById('returnToWeeklyBtn').classList.add('hidden');
             document.getElementById('welcomeTitle').innerText = "Daily Queue Ready";
         }
 
-        async function controllableWait(ms) {
+        function switchToWeeklyLoop() {
+            sessionResetRequested = true;
+            activeSessionLockId++; // INVALIDATE ALL ACTIVE LOOPS
+            window.speechSynthesis.cancel();
+            isPaused = false;
+            document.getElementById('pausePlayBtn').innerText = "⏸ Pause";
+            
+            setTimeout(() => {
+                startSession(false);
+            }, 50);
+        }
+
+        async function controllableWait(ms, lockId) {
             let elapsed = 0;
             while (elapsed < ms) {
-                if (sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                if (activeSessionLockId !== lockId || sessionResetRequested || skipRequestedFlag) {
+                    throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                }
                 while (isPaused) {
-                    if (sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                    if (activeSessionLockId !== lockId || sessionResetRequested || skipRequestedFlag) {
+                        throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                    }
                     await new Promise(r => setTimeout(r, 100));
                 }
                 await new Promise(r => setTimeout(r, 100));
@@ -748,10 +783,20 @@
             window.speechSynthesis.cancel();
         }
 
-        function startManualSession() { startSession(true); }
+        function startManualSession() { 
+            sessionResetRequested = true;
+            activeSessionLockId++; // INVALIDATE ALL ACTIVE LOOPS
+            window.speechSynthesis.cancel();
+            setTimeout(() => {
+                startSession(true); 
+            }, 50);
+        }
 
         async function startSession(forceManual = false) {
             sessionResetRequested = false;
+            window.speechSynthesis.cancel();
+            
+            const mySessionId = ++activeSessionLockId; // CLAIM UNIQUE SESSION LOCK TOKEN
             
             try {
                 activeQueueSession = extractWorkingQueue(forceManual);
@@ -770,9 +815,18 @@
                 idleSpace.classList.add('hidden');
                 targetWorkspace.classList.remove('hidden');
 
+                const targetWeeklyGoal = activePaceDays * activeBatchSize;
+                const returnBtn = document.getElementById('returnToWeeklyBtn');
+                if (forceManual || activeQueueSession.length > targetWeeklyGoal) {
+                    returnBtn.innerText = `⬅️ Back to Weekly Loop (${targetWeeklyGoal} Words)`;
+                    returnBtn.classList.remove('hidden');
+                } else {
+                    returnBtn.classList.add('hidden');
+                }
+
                 currentCardIndex = 0;
                 while(currentCardIndex < activeQueueSession.length) {
-                    if (sessionResetRequested) throw new Error("RESET");
+                    if (activeSessionLockId !== mySessionId || sessionResetRequested) throw new Error("RESET");
                     const card = activeQueueSession[currentCardIndex];
                     
                     flipper.classList.remove('rotate-y-180');
@@ -825,40 +879,40 @@
                     try {
                         document.getElementById('loopIndicator').innerText = "Card Flash...";
                         timeline.style.width = "25%";
-                        await controllableWait(2000);
+                        await controllableWait(2000, mySessionId);
 
                         document.getElementById('loopIndicator').innerText = "Listen Loop 1/2";
                         timeline.style.width = "40%";
                         const mainVoicePrompt = (card.article ? `${card.article} ${card.singular}` : card.singular);
-                        await vocalizeEngine(mainVoicePrompt, 'de-DE');
-                        await controllableWait(1000);
+                        await vocalizeEngine(mainVoicePrompt, 'de-DE', mySessionId);
+                        await controllableWait(1000, mySessionId);
 
-                        if (sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                        if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                         document.getElementById('loopIndicator').innerText = "Listen Loop 2/2";
                         timeline.style.width = "55%";
-                        await vocalizeEngine(mainVoicePrompt, 'de-DE');
-                        await controllableWait(1000);
+                        await vocalizeEngine(mainVoicePrompt, 'de-DE', mySessionId);
+                        await controllableWait(1000, mySessionId);
 
                         if(card.type === 'nomen' && card.plural) {
-                            if (sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                            if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                             document.getElementById('loopIndicator').innerText = "Plural Form...";
                             timeline.style.width = "75%";
-                            await vocalizeEngine(`die ${card.plural}`, 'de-DE');
-                            await controllableWait(1000);
+                            await vocalizeEngine(`die ${card.plural}`, 'de-DE', mySessionId);
+                            await controllableWait(1000, mySessionId);
                         } else if(card.type === 'verb') {
                             if(card.präteritum) {
-                                if (sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                                if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                                 document.getElementById('loopIndicator').innerText = "Präteritum...";
                                 timeline.style.width = "70%";
-                                await vocalizeEngine(card.präteritum, 'de-DE');
-                                await controllableWait(1000);
+                                await vocalizeEngine(card.präteritum, 'de-DE', mySessionId);
+                                await controllableWait(1000, mySessionId);
                             }
                             if(card.perfekt) {
-                                if (sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
+                                if (activeSessionLockId !== mySessionId || sessionResetRequested || skipRequestedFlag) throw new Error(skipRequestedFlag ? "SKIP" : "RESET");
                                 document.getElementById('loopIndicator').innerText = "Perfekt...";
                                 timeline.style.width = "85%";
-                                await vocalizeEngine(card.perfekt, 'de-DE');
-                                await controllableWait(1000);
+                                await vocalizeEngine(card.perfekt, 'de-DE', mySessionId);
+                                await controllableWait(1000, mySessionId);
                             }
                         }
 
@@ -867,8 +921,8 @@
                         flipper.classList.add('rotate-y-180');
 
                         const targetLocale = getTargetLangLocale();
-                        await vocalizeEngine(card.english, targetLocale);
-                        await controllableWait(2500);
+                        await vocalizeEngine(card.english, targetLocale, mySessionId);
+                        await controllableWait(2500, mySessionId);
 
                     } catch (loopErr) {
                         if (loopErr.message === "SKIP") {
@@ -882,13 +936,14 @@
                     currentCardIndex++;
                 }
 
-                targetWorkspace.classList.add('hidden');
-                idleSpace.classList.remove('hidden');
-                document.getElementById('welcomeTitle').innerText = "Session Complete!";
+                if (activeSessionLockId === mySessionId) {
+                    targetWorkspace.classList.add('hidden');
+                    idleSpace.classList.remove('hidden');
+                    returnBtn.classList.add('hidden');
+                    document.getElementById('welcomeTitle').innerText = "Session Complete!";
+                }
             } catch (err) {
-                if (err.message !== "RESET" && err.message !== "SKIP") {
-                    console.error(err);
-                } else if (err.message === "SKIP") {
+                if (err.message === "SKIP" && activeSessionLockId === mySessionId) {
                     currentCardIndex += skipDirection;
                     if (currentCardIndex < 0) currentCardIndex = 0;
                     startSession(forceManual);
